@@ -1,0 +1,88 @@
+:root{
+  --page:#f4f4f5; --surface:#ffffff; --surface-alt:#f7f7f8; --elevated:#ffffff;
+  --fg:#171719; --fg-strong:#000000; --fg-muted:rgba(46,47,51,.88); --fg-subtle:rgba(55,56,60,.61);
+  --line:rgba(112,115,124,.16); --line-soft:rgba(112,115,124,.08); --line-strong:rgba(112,115,124,.52);
+  --fill:rgba(112,115,124,.08); --fill-strong:rgba(112,115,124,.16);
+  --primary:#0066ff; --primary-strong:#005eeb; --on-primary:#ffffff;
+  --pos:#00bf40; --warn:#ff9200; --neg:#ff4242;
+  --pos-fg:#009632; --warn-fg:#d17600; --neg-fg:#e52222; --violet-fg:#5b37ed;
+  --inverse-bg:#1b1c1e; --inverse-fg:#f7f7f8; --inverse-primary:#3385ff;
+  --dim:rgba(23,23,25,.52); --paper:#ffffff; --paper-fg:#2e2f33;
+  --shadow:0 0 1px rgba(0,0,0,.08),0 1px 4px rgba(0,0,0,.08),0 2px 8px rgba(0,0,0,.12);
+  --shadow-heavy:0 0 8px rgba(0,0,0,.08),0 8px 16px rgba(0,0,0,.08),0 16px 20px rgba(0,0,0,.12);
+  --font:"Pretendard JP",Pretendard,"Noto Sans KR",-apple-system,BlinkMacSystemFont,system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --page:#0f0f10; --surface:#1b1c1e; --surface-alt:#141415; --elevated:#212225;
+  --fg:#f7f7f8; --fg-strong:#ffffff; --fg-muted:rgba(194,196,200,.88); --fg-subtle:rgba(174,176,182,.61);
+  --line:rgba(112,115,124,.28); --line-soft:rgba(112,115,124,.22); --line-strong:rgba(194,196,200,.52);
+  --fill:rgba(112,115,124,.22); --fill-strong:rgba(112,115,124,.28);
+  --primary:#3385ff; --primary-strong:#1a75ff; --on-primary:#ffffff;
+  --pos:#1ed45a; --warn:#ffa938; --neg:#ff6363; --pos-fg:#1ed45a; --warn-fg:#ffa938; --neg-fg:#ff6363; --violet-fg:#9e86fc;
+  --inverse-bg:#f7f7f8; --inverse-fg:#171719; --inverse-primary:#0066ff; --dim:rgba(0,0,0,.66); --paper:#f7f7f8; --paper-fg:#2e2f33;
+  --shadow:0 0 0 1px rgba(112,115,124,.28); --shadow-heavy:0 0 0 1px rgba(112,115,124,.32);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0f0f10; --surface:#1b1c1e; --surface-alt:#141415; --elevated:#212225;
+  --fg:#f7f7f8; --fg-strong:#ffffff; --fg-muted:rgba(194,196,200,.88); --fg-subtle:rgba(174,176,182,.61);
+  --line:rgba(112,115,124,.28); --line-soft:rgba(112,115,124,.22); --line-strong:rgba(194,196,200,.52);
+  --fill:rgba(112,115,124,.22); --fill-strong:rgba(112,115,124,.28);
+  --primary:#3385ff; --primary-strong:#1a75ff; --on-primary:#ffffff;
+  --pos:#1ed45a; --warn:#ffa938; --neg:#ff6363; --pos-fg:#1ed45a; --warn-fg:#ffa938; --neg-fg:#ff6363; --violet-fg:#9e86fc;
+  --inverse-bg:#f7f7f8; --inverse-fg:#171719; --inverse-primary:#0066ff; --dim:rgba(0,0,0,.66); --paper:#f7f7f8; --paper-fg:#2e2f33;
+  --shadow:0 0 0 1px rgba(112,115,124,.28); --shadow-heavy:0 0 0 1px rgba(112,115,124,.32);
+  color-scheme:dark}
+/* 아래는 이 앱 레이아웃 (토큰은 위 프로토타입 값 그대로) */
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--page);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.467;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.app{max-width:430px;min-height:100vh;margin:0 auto;background:var(--surface);display:flex;flex-direction:column;padding-bottom:96px}
+.bar{height:56px;display:flex;align-items:center;gap:4px;padding:0 8px;flex:none}
+.bar .t{font-size:17px;font-weight:600;color:var(--fg-strong)}
+.bar .r{margin-left:auto}
+.ib{min-width:44px;height:44px;border:0;background:none;border-radius:12px;font-size:20px;padding:0 10px}
+.ib:hover{background:var(--fill)}
+.pad{padding:0 16px}
+.mut{color:var(--fg-subtle)}
+.sm{font-size:13px}
+.num{font-variant-numeric:tabular-nums}
+.big{font-size:26px;font-weight:700;color:var(--fg-strong);letter-spacing:-.02em;margin:2px 0 12px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.cal .w{font-size:12px;color:var(--fg-subtle);padding:4px 0}
+.cal .w:first-child{color:var(--neg-fg)}
+.cal button{border:0;background:none;border-radius:10px;min-height:52px;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:2px}
+.cal button[aria-pressed="true"]{background:var(--fill-strong)}
+.cal button.today b{color:var(--primary)}
+.cal b{font-weight:500;font-size:14px}
+.cal i{font-style:normal;font-size:10px;color:var(--neg-fg);font-variant-numeric:tabular-nums}
+.list{margin-top:16px;border-top:1px solid var(--line)}
+.li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.li .g{display:flex;flex-direction:column;min-width:0}
+.li .g span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:11px;padding:1px 6px;border-radius:6px;background:var(--fill-strong);color:var(--fg-muted);margin-left:4px}
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:max(16px,env(safe-area-inset-bottom));width:min(398px,calc(100% - 32px));height:56px;border:0;border-radius:16px;background:var(--primary);color:var(--on-primary);font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow-heavy)}
+.btn{height:48px;border-radius:12px;border:0;padding:0 16px;font-weight:600;background:var(--fill-strong)}
+.btn.p{background:var(--primary);color:var(--on-primary)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.s{height:36px;font-size:13px;padding:0 12px}
+label.f{display:flex;flex-direction:column;gap:4px;margin:12px 0;font-size:13px;color:var(--fg-muted)}
+input,select,textarea{width:100%;min-height:44px;border:1px solid var(--line-strong);border-radius:10px;padding:8px 10px;background:var(--surface);color:var(--fg);font-size:15px}
+textarea{font:inherit;min-height:120px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1;min-width:0}
+.item{border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;display:flex;flex-direction:column;gap:8px}
+.item.unsure,.unsure select,select.unsure{border-color:var(--warn)}
+.item .row input,.item .row select{min-height:40px}
+.photo{width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:var(--surface-alt)}
+.msg{padding:10px 12px;border-radius:10px;margin:8px 0;font-size:14px}
+.msg.err{background:color-mix(in srgb,var(--neg) 14%,transparent);color:var(--neg-fg)}
+.msg.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn-fg)}
+.msg.ok{background:color-mix(in srgb,var(--pos) 14%,transparent);color:var(--pos-fg)}
+.sum{display:flex;justify-content:space-between;padding:6px 0}
+.foot{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(430px,100%);background:var(--surface);padding:12px 16px max(12px,env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.spin{display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--fg-subtle)}
+h2{font-size:15px;margin:20px 0 4px;color:var(--fg-strong)}
+.app:has(.foot){padding-bottom:220px}
