@@ -21,20 +21,25 @@ export async function saveReceipt({ draft, clientId, sheets, store, yearIds, pay
 
   const write = async start => {
     const end = start + count - 1;
-    store.set(clientId, { status: 'pending', year, start, count });
+    store.set(clientId, { status: 'pending', year, start, count, draft });
     await sheets.setValues(id, `${TX}!A${start}:G${end}`, rows);
     store.set(clientId, { status: 'done', year, start, count });
     return { ok: true, year, start, count, already: false };
   };
 
+  // 끝났는지 모르는 이전 저장: 그때 쓴 연도 파일·자리를 본다. 비어 있으면 처음부터 다시.
   if (rec && rec.status === 'pending') {
-    const got = await sheets.getValues(id, `${TX}!A${rec.start}:G${rec.start + count - 1}`);
-    if (same(got, rows)) {
-      store.set(clientId, { ...rec, status: 'done' });
-      return { ok: true, year, start: rec.start, count, already: true };
+    const prevId = yearIds[rec.year];
+    const got = prevId ? await sheets.getValues(prevId, `${TX}!A${rec.start}:G${rec.start + rec.count - 1}`) : [];
+    // F열은 미리 채워진 수식(값 0)이 있으니 빈 줄 판정에서 뺀다.
+    const empty = got.every(r => !r || r.every((v, k) => k === 5 || v === '' || v == null));
+    if (!empty) {
+      if (rec.year === year && same(got, rows)) {
+        store.set(clientId, { status: 'done', year, start: rec.start, count });
+        return { ok: true, year, start: rec.start, count, already: true };
+      }
+      return { ok: false, error: 'PENDING_CONFLICT', detail: rec.start };
     }
-    if (got.every(r => !r || r[0] === '' || r[0] == null)) return write(rec.start);
-    return { ok: false, error: 'PENDING_CONFLICT', detail: rec.start };
   }
 
   const limit = rangeEnd(await sheets.getFormula(id, IS_CELL));

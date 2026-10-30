@@ -93,3 +93,38 @@ test('invalid draft → error codes, no write', async () => {
   assert.equal(r.ok, false); assert.equal(r.error, 'INVALID'); assert.deepEqual(r.detail, ['NO_PAY']);
   assert.equal(sheets.calls.set, 0);
 });
+
+test('pending in another year file with rows there → PENDING_CONFLICT', async () => {
+  const files = { A: ROWS.map(r => [...r]), B: ROWS.map(r => [...r]) }, sheets = fakeSheets(files), store = memStore();
+  toRows(LOTTE).forEach((row, i) => { files.A[10 + i] = row; });
+  store.set('c1', { status: 'pending', year: 2026, start: 11, count: 9 });
+  const draft = { ...LOTTE, date: '2025-10-26' };
+  const r = await saveReceipt(args({ draft, sheets, store, yearIds: { 2025: 'B', 2026: 'A' } }));
+  assert.equal(r.error, 'PENDING_CONFLICT'); assert.equal(sheets.calls.set, 0);
+  assert.equal(files.B.length, ROWS.length);
+});
+
+test('pending in another year file, empty there → fresh save in new year', async () => {
+  const files = { A: ROWS.map(r => [...r]), B: ROWS.map(r => [...r]) }, sheets = fakeSheets(files), store = memStore();
+  store.set('c1', { status: 'pending', year: 2026, start: 11, count: 9 });
+  const draft = { ...LOTTE, date: '2025-10-26' };
+  const r = await saveReceipt(args({ draft, sheets, store, yearIds: { 2025: 'B', 2026: 'A' } }));
+  assert.equal(r.year, 2025); assert.equal(r.start, 11); assert.equal(files.A.length, ROWS.length);
+});
+
+test('pending retry keeps range check and treats memo-only rows as occupied', async () => {
+  const files = base(), sheets = fakeSheets(files, 15), store = memStore();
+  store.set('c1', { status: 'pending', year: 2026, start: 11, count: 9 });
+  assert.equal((await saveReceipt(args({ sheets, store }))).error, 'SHEET_RANGE_EXCEEDED');
+  const f2 = base(); f2.A[11] = ['', '', '', '', '', '', '손메모'];
+  const s2 = memStore(); s2.set('c1', { status: 'pending', year: 2026, start: 11, count: 9 });
+  assert.equal((await saveReceipt(args({ sheets: fakeSheets(f2), store: s2 }))).error, 'PENDING_CONFLICT');
+});
+
+test('pending record keeps the draft for recovery after reload', async () => {
+  const files = base(), store = memStore();
+  const sheets = { ...fakeSheets(files), async setValues() { throw new Error('offline'); } };
+  await assert.rejects(saveReceipt(args({ sheets, store })));
+  assert.equal(store.get('c1').status, 'pending');
+  assert.deepEqual(store.get('c1').draft, LOTTE);
+});

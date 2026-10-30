@@ -44,9 +44,8 @@ test('double-counted coupon leaves a balance gap', () => {
   assert.ok(check(d, DEFAULT_PAYS).includes('BAD_BALANCE'));
 });
 
-test('bad date → today, missing total → net', () => {
-  const d = normalize({ ...LOTTE_JSON, date: '', total: 0 }, CTX).draft;
-  assert.equal(d.date, '2026-10-30'); assert.equal(d.amount, 15780);
+test('bad date → today', () => {
+  assert.equal(normalize({ ...LOTTE_JSON, date: '' }, CTX).draft.date, '2026-10-30');
 });
 
 test('not_receipt → NOT_RECEIPT', () => {
@@ -63,4 +62,14 @@ test('receiptSchema has no numeric constraints', () => {
 
 test('receiptPrompt mentions 자사할인 rule', () => {
   assert.match(receiptPrompt(CATS), /자사할인/);
+});
+
+test('impossible date → today', () => {
+  assert.equal(normalize({ ...LOTTE_JSON, date: '2026-02-30' }, CTX).draft.date, '2026-10-30');
+});
+
+test('missing total → amount 0 so double-counted coupon cannot balance itself', () => {
+  const d = normalize({ ...LOTTE_JSON, coupon: 7000, total: 0 }, CTX).draft;
+  assert.equal(d.amount, 0);
+  assert.ok(check(d, DEFAULT_PAYS).includes('BAD_AMOUNT'));
 });

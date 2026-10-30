@@ -1,4 +1,5 @@
 // Claude 인식 JSON ↔ 영수증 초안.
+import { validDate } from './ledger.js';
 
 export function receiptSchema(cats) {
   const str = { type: 'string' }, int = { type: 'integer' }, bool = { type: 'boolean' };
@@ -52,11 +53,10 @@ export function normalize(j, ctx) {
     };
   });
   const coupon = Math.abs(toInt(j.coupon));
-  const net = items.reduce((a, x) => a + x.amt - x.disc, 0) - coupon;
   const { pay, unsure } = mapPay(j.payment, ctx.pays);
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(j.date || '') ? j.date : ctx.today;
+  const date = validDate(j.date) ? j.date : ctx.today;
   return { ok: true, draft: {
     merchant: String(j.merchant || '').trim().slice(0, 40) || '가맹점',
-    date, pay, coupon, amount: toInt(j.total) > 0 ? toInt(j.total) : net, payUnsure: unsure, items,
+    date, pay, coupon, amount: Math.max(0, toInt(j.total)), payUnsure: unsure, items,
   } };
 }

@@ -4,11 +4,23 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const TOKEN_KEY = 'ledger.gtoken';
 
 let client = null;
+let waiting = null; // 지금 토큰을 기다리는 {resolve, reject}
 
 export function initGoogle(clientId) {
   return new Promise((resolve, reject) => {
     const done = () => {
-      client = google.accounts.oauth2.initTokenClient({ client_id: clientId, scope: SCOPE, callback: () => {} });
+      client = google.accounts.oauth2.initTokenClient({
+        client_id: clientId, scope: SCOPE,
+        callback: r => {
+          const w = waiting; waiting = null;
+          if (!w) return;
+          if (r.error) return w.reject(new Error(r.error_description || r.error));
+          try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: r.access_token, exp: Date.now() + r.expires_in * 1000 })); } catch {}
+          w.resolve(r.access_token);
+        },
+        // 로그인 창을 닫거나 팝업이 막히면 여기로 온다.
+        error_callback: e => { const w = waiting; waiting = null; if (w) w.reject(new Error(e?.type === 'popup_closed' ? '로그인 창이 닫혔어요' : 'Google 로그인 창을 열지 못했어요 (팝업 차단 확인)')); },
+      });
       resolve();
     };
     if (window.google?.accounts?.oauth2) return done();
@@ -33,12 +45,8 @@ export function getToken(force = false) {
   if (t) return Promise.resolve(t);
   return new Promise((resolve, reject) => {
     if (!client) return reject(new Error('Google 로그인이 준비되지 않았어요'));
-    client.callback = r => {
-      if (r.error) return reject(new Error(r.error_description || r.error));
-      try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: r.access_token, exp: Date.now() + r.expires_in * 1000 })); } catch {}
-      resolve(r.access_token);
-    };
-    client.error_callback = e => reject(new Error(e?.message || '로그인 창이 닫혔어요'));
+    if (waiting) waiting.reject(new Error('다른 로그인 요청으로 바뀌었어요'));
+    waiting = { resolve, reject };
     client.requestAccessToken({ prompt: '' });
   });
 }

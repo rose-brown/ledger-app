@@ -17,6 +17,8 @@ let S = load('ledger.settings', { apiKey: '', years: {}, pays: DEFAULT_PAYS });
 const txStore = {
   get: id => load('ledger.tx', {})[id],
   set: (id, rec) => { const m = load('ledger.tx', {}); m[id] = rec; keep('ledger.tx', m); },
+  del: id => { const m = load('ledger.tx', {}); delete m[id]; keep('ledger.tx', m); },
+  pending: () => Object.entries(load('ledger.tx', {})).find(([, r]) => r.status === 'pending' && r.draft),
 };
 
 // ---------- 공용 ----------
@@ -98,7 +100,8 @@ function calView() {
 
 function confirmView() {
   const d = U.draft;
-  const head = `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">영수증 확인</span></div>`;
+  const head = `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">영수증 확인</span>
+    <span class="r"><button class="ib" data-act="settings" aria-label="설정">⚙</button></span></div>`;
   if (U.busy) return head + `${U.photoUrl ? `<div class="pad"><img class="photo" src="${U.photoUrl}" alt="영수증 사진"></div>` : ''}<div class="spin">${esc(U.busy)}</div>`;
   const opt = (list, v) => `<option value="">선택</option>` + list.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('');
   const items = d.items.map((x, i) => `<div class="item ${x.unsure ? 'unsure' : ''}">
@@ -199,16 +202,17 @@ async function onPhoto(file) {
 }
 
 async function save() {
+  const draft = U.draft, clientId = U.clientId;
   U.saving = true; updateStatus();
   try {
     await getToken();
-    const r = await saveReceipt({ draft: U.draft, clientId: U.clientId, sheets, store: txStore, yearIds: S.years, pays: S.pays });
+    const r = await saveReceipt({ draft, clientId, sheets, store: txStore, yearIds: S.years, pays: S.pays });
     if (!r.ok) {
       U.saving = false;
       U.error = r.error === 'INVALID' ? r.detail.map(e => errText(e)).join(' ') : errText(r.error, r.detail);
       render(); window.scrollTo(0, 0); return;
     }
-    const d = U.draft.date;
+    const d = draft.date;
     U.y = +d.slice(0, 4); U.m = +d.slice(5, 7); U.d = +d.slice(8, 10);
     U.note = r.already ? '이미 저장된 영수증이에요.' : `${r.year}년 시트 ${r.start}~${r.start + r.count - 1}행에 저장했어요.`;
     U.draft = null; U.photoUrl = ''; U.saving = false;
@@ -226,13 +230,18 @@ $app.addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.day) { U.d = +t.dataset.day; U.note = ''; render(); return; }
   const act = t.dataset.act;
+  if (U.saving && act !== 'save') return;
   if (act === 'prev' || act === 'next') {
     U.m += act === 'prev' ? -1 : 1;
     if (U.m < 1) { U.m = 12; U.y--; } if (U.m > 12) { U.m = 1; U.y++; }
     U.d = 1; U.note = ''; showCalendar();
   } else if (act === 'reload') showCalendar(true);
   else if (act === 'settings') { U.screen = 'settings'; render(); }
-  else if (act === 'back' || act === 'cancel') { U.draft = null; U.photoUrl = ''; showCalendar(); }
+  else if (act === 'back') { if (U.draft) { U.screen = 'confirm'; U.error = ''; render(); } else showCalendar(); }
+  else if (act === 'cancel') {
+    if (txStore.get(U.clientId)?.status === 'pending') txStore.del(U.clientId);
+    U.draft = null; U.photoUrl = ''; U.error = ''; showCalendar();
+  }
   else if (act === 'shoot') {
     if (!ready()) { U.screen = 'settings'; render(); return; }
     $photo.click();
@@ -250,11 +259,11 @@ $app.addEventListener('click', async e => {
     S.apiKey = document.getElementById('apiKey').value.trim();
     S.pays = document.getElementById('pays').value.split('\n').map(s => s.trim()).filter(Boolean);
     keep('ledger.settings', S);
-    showCalendar(true);
+    if (U.draft) { U.screen = 'confirm'; U.error = ''; render(); } else showCalendar(true);
   }
 });
 
-$app.addEventListener('input', e => {
+function onField(e) {
   const t = e.target, d = U.draft;
   if (!d) return;
   if (t.dataset.f) {
@@ -267,11 +276,21 @@ $app.addEventListener('input', e => {
     if (k === 'cat') { it.unsure = false; t.classList.toggle('unsure', !t.value); t.closest('.item').classList.remove('unsure'); }
   }
   updateStatus();
-});
+}
+// iOS Safari는 select·date에서 input 이벤트를 안 낼 때가 있어 change도 듣는다.
+$app.addEventListener('input', onField);
+$app.addEventListener('change', onField);
 
 // ---------- 시작 ----------
 (async () => {
   if (GOOGLE_CLIENT_ID) { try { await initGoogle(GOOGLE_CLIENT_ID); } catch (e) { U.error = e.message; } }
   if (!ready()) { U.screen = 'settings'; render(); return; }
+  const p = txStore.pending();
+  if (p) {
+    [U.clientId, { draft: U.draft }] = p;
+    U.screen = 'confirm';
+    U.error = '저장이 끝났는지 확인하지 못한 영수증이에요. 저장을 누르면 시트를 확인해 중복 없이 마무리해요. ✕를 누르면 이 기록을 지워요.';
+    render(); return;
+  }
   showCalendar();
 })();

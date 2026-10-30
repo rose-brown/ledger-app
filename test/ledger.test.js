@@ -59,3 +59,9 @@ test('check: zero amount → BAD_AMOUNT', () => {
 test('check: unbalanced → BAD_BALANCE', () => {
   assert.ok(check({ ...LOTTE, amount: 15000 }, DEFAULT_PAYS).includes('BAD_BALANCE'));
 });
+
+test('check: impossible dates → BAD_DATE', () => {
+  for (const date of ['2026-02-30', '2026-13-01', '2026-00-10']) {
+    assert.ok(check({ ...LOTTE, date }, DEFAULT_PAYS).includes('BAD_DATE'), date);
+  }
+});

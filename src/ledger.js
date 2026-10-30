@@ -42,9 +42,16 @@ export function toRows(d) {
   return R;
 }
 
+// 형식뿐 아니라 실제 있는 날짜인지(2월 30일·13월 거부).
+export function validDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
+  const [y, m, d] = s.split('-').map(Number), t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
 export function check(d, pays) {
   const err = [];
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date || '')) err.push('BAD_DATE');
+  if (!validDate(d.date)) err.push('BAD_DATE');
   if (!d.items.length) err.push('NO_ITEMS');
   if (d.items.some(x => !(x.amt > 0) || x.disc < 0 || x.disc > x.amt) || !(d.amount > 0) || d.coupon < 0) err.push('BAD_AMOUNT');
   if (d.items.some(x => !CATS.includes(x.cat))) err.push('BAD_CAT');
