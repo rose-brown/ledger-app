@@ -291,6 +291,9 @@ $app.addEventListener('click', async e => {
     if (y >= 2000 && id) { S.years[y] = id; keep('ledger.settings', S); U.rows = {}; render(); }
   } else if (act === 'delYear') { delete S.years[t.dataset.y]; keep('ledger.settings', S); render(); }
   else if (act === 'saveSettings') {
+    // + 연도 추가를 안 누르고 저장해도 입력한 시트를 연결한다.
+    const y = int(document.getElementById('newYear').value), id = sheetId(document.getElementById('newSheet').value);
+    if (y >= 2000 && id) { S.years[y] = id; U.rows = {}; }
     S.apiKey = document.getElementById('apiKey').value.trim();
     S.pays = document.getElementById('pays').value.split('\n').map(s => s.trim()).filter(Boolean);
     keep('ledger.settings', S);
