@@ -18,6 +18,8 @@
 
 **기본 (API 키 없음)**: 앱의 **🧾 영수증 넣기** → **질문 복사** → Claude 앱에서 영수증 사진 첨부 + 질문 붙여넣기 → Claude 답을 통째로 복사해 앱에 붙여넣고 **불러오기** → 확인 화면. Pro 구독은 API에 쓸 수 없어 이렇게 사람이 옮깁니다.
 
+**토스 지출 캡처**: 같은 화면에서 **토스 질문 복사** → Claude 앱에 캡처 첨부 → 답 붙여넣기 → 거래 목록에서 체크한 것만 한 번에 저장 (1건 = 차변 1행 + 대변 1행). 입금·내 계좌 간 이체는 기본 체크 해제. 토스 결제수단 표기(예: `K-패스 신용`)에 고른 시트 계정은 기기에 기억됩니다. 연도는 캡처에 없어 오늘 기준(오늘보다 뒤 달이면 작년)으로 정합니다.
+
 **API 키 (선택)**: 넣으면 사진만 찍어도 바로 읽습니다.
 1. https://platform.claude.com/settings/keys 에서 이 앱 전용 키를 만듭니다.
 2. Billing에서 결제 수단을 등록하고, Limits에서 월 지출 한도를 낮게(예: $5) 걸어 둡니다. 영수증 1장은 1원 안팎입니다(claude-haiku-5-5).
@@ -69,6 +71,7 @@ python -m http.server 8000   # 로컬에서 열기 → http://localhost:8000
 | `src/ledger.js` | 카테고리 15개, 결제수단 기본값, 쿠폰 배분, 행 만들기, 저장 전 검사 |
 | `src/receipt.js` | Claude 응답 스키마·프롬프트, 응답 → 초안, 결제수단 매핑 |
 | `src/sheet.js` | 머리글·마지막 행, Income Statement 범위, 월·일 지출, 그날 거래 묶기 |
+| `src/toss.js` | 토스 캡처 질문, 답 → 거래 목록, 거래 → 초안 |
 | `src/save.js` | 중복 없는 저장 순서 (기기 저장 기록 pending/done) |
 | `src/claude.js` | Messages API 호출 (`claude-haiku-5-5`, 구조화 출력) |
 | `src/google.js` | Google 로그인 + Sheets API (브라우저 전용) |

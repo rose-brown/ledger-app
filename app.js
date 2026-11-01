@@ -4,6 +4,7 @@ import { CATS, DEFAULT_PAYS, balance, check } from './src/ledger.js';
 import { normalize, chatPrompt, parseAnswer } from './src/receipt.js';
 import { rangeEnd, monthSpend, dayEntries, hasSame } from './src/sheet.js';
 import { saveReceipt, TX, IS_CELL } from './src/save.js';
+import { tossPrompt, normalizeToss, tossDraft, payKey } from './src/toss.js';
 import { recognize } from './src/claude.js';
 import { initGoogle, getToken, signedIn, sheets } from './src/google.js';
 
@@ -14,6 +15,7 @@ const $photo = document.getElementById('photo');
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let S = load('ledger.settings', { apiKey: '', years: {}, pays: DEFAULT_PAYS });
+S.payMap ||= {}; // 토스 결제수단 표기 → 시트 계정 (한 번 고르면 기억)
 const txStore = {
   get: id => load('ledger.tx', {})[id],
   set: (id, rec) => { const m = load('ledger.tx', {}); m[id] = rec; keep('ledger.tx', m); },
@@ -64,7 +66,8 @@ async function showCalendar(force = false) {
 
 // ---------- 화면 그리기 ----------
 function render() {
-  $app.innerHTML = U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : U.screen === 'paste' ? pasteView() : calView();
+  $app.innerHTML = U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : U.screen === 'paste' ? pasteView() : U.screen === 'list' ? listView() : calView();
+  if (U.screen === 'list') updateListFoot();
   if (U.screen === 'confirm') updateStatus();
 }
 
@@ -72,7 +75,7 @@ function calView() {
   const head = `<div class="bar"><button class="ib" data-act="prev" aria-label="이전 달">‹</button>
     <span class="t">${U.y}년 ${U.m}월</span><button class="ib" data-act="next" aria-label="다음 달">›</button>
     <span class="r"><button class="ib" data-act="reload" aria-label="새로고침">↻</button><button class="ib" data-act="settings" aria-label="설정">⚙</button></span></div>`;
-  const fab = `<button class="fab" data-act="shoot">${S.apiKey ? '📷 영수증 찍기' : '🧾 영수증 넣기'}</button>`;
+  const fab = `<button class="fab" data-act="shoot">${S.apiKey ? '📷 영수증 찍기' : '🧾 영수증·토스 넣기'}</button>`;
   if (!ready()) return head + `<div class="pad"><div class="msg warn">처음 쓰려면 설정이 필요해요.</div><button class="btn p" data-act="settings">설정 열기</button></div>`;
   if (!S.years[U.y]) return head + `<div class="pad"><div class="msg warn">${U.y}년 시트가 연결돼 있지 않아요.</div><button class="btn" data-act="settings">설정에서 추가</button></div>` + fab;
   if (!signedIn()) return head + `<div class="pad"><p class="mut">시트를 보려면 Google 로그인이 필요해요.</p><button class="btn p" data-act="login">Google 로그인</button></div>` + fab;
@@ -142,18 +145,71 @@ function updateStatus() {
 
 // API 키가 없을 때: Claude 앱(구독)에서 읽힌 답을 붙여넣는다.
 function pasteView() {
-  return `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">영수증 넣기</span></div><div class="pad">
+  return `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">영수증·토스 넣기</span></div><div class="pad">
     ${U.error ? `<div class="msg warn">${esc(U.error)}</div>` : ''}
     <ol class="sm" style="padding-left:20px;line-height:1.7">
-      <li><b>질문 복사</b>를 누르세요.</li>
-      <li>Claude 앱에서 영수증 사진을 첨부하고 질문을 붙여넣어 보내세요.</li>
+      <li>영수증이면 <b>영수증 질문</b>, 토스 지출 캡처면 <b>토스 질문</b>을 복사하세요.</li>
+      <li>Claude 앱에서 사진·캡처를 첨부하고 질문을 붙여넣어 보내세요.</li>
       <li>Claude 답을 통째로 복사해 아래에 붙여넣으세요.</li>
     </ol>
-    <button class="btn" data-act="copyPrompt" style="width:100%">질문 복사</button>
+    <div class="row"><button class="btn" data-act="copyPrompt" data-p="receipt">영수증 질문 복사</button>
+      <button class="btn" data-act="copyPrompt" data-p="toss">토스 질문 복사</button></div>
     <textarea id="answer" placeholder="Claude 답 붙여넣기" style="margin-top:12px">${esc(U.answer)}</textarea>
     <button class="btn p" data-act="loadAnswer" style="width:100%;margin-top:8px">불러오기</button>
     <button class="btn s" data-act="manual" style="width:100%;margin-top:8px">직접 입력</button>
   </div>`;
+}
+
+// 토스 캡처: 거래 여러 건을 체크해서 한 번에 저장.
+const txBad = x => x.on && !x.done && check(tossDraft(x), S.pays).length > 0;
+
+function listView() {
+  const opt = (list, v) => `<option value="">선택</option>` + list.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('');
+  const items = U.list.map((x, i) => {
+    const rows = U.rows[+x.date.slice(0, 4)], dup = !x.done && rows && x.pay && hasSame(rows, tossDraft(x));
+    return `<div class="item ${txBad(x) ? 'unsure' : ''}">
+      <div class="row"><input type="checkbox" data-tx="${i}" data-k="on" ${x.on ? 'checked' : ''} ${x.done ? 'disabled' : ''} aria-label="저장할 거래" style="flex:none;width:22px;min-height:22px">
+        <input data-tx="${i}" data-k="merchant" value="${esc(x.merchant)}" aria-label="가맹점">
+        <input data-tx="${i}" data-k="amount" inputmode="numeric" value="${x.amount || ''}" aria-label="금액" style="flex:0 0 96px;text-align:right"></div>
+      <div class="sm mut">${esc(x.payText || '결제수단 표시 없음')}${x.done ? '<span class="badge">저장됨</span>' : ''}${dup ? '<span class="badge">시트에 같은 거래 있음</span>' : ''}</div>
+      <div class="row"><input type="date" data-tx="${i}" data-k="date" value="${esc(x.date)}" aria-label="날짜">
+        <select data-tx="${i}" data-k="cat" aria-label="카테고리">${opt(CATS, x.cat)}</select></div>
+      <select data-tx="${i}" data-k="pay" aria-label="결제수단">${opt(S.pays, x.pay)}</select>
+    </div>`;
+  }).join('');
+  return `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">토스 내역 확인</span></div><div class="pad">
+    ${U.error ? `<div class="msg warn">${esc(U.error)}</div>` : ''}
+    <p class="sm mut">입금·내 계좌 간 이체는 체크가 빠져 있어요. 결제수단은 한 번 고르면 다음부터 자동으로 채워져요.</p>${items}</div>
+  <div class="foot"><div id="status"></div><button class="btn p" data-act="saveList" id="saveBtn">저장</button></div>`;
+}
+
+function updateListFoot() {
+  const box = document.getElementById('status'), btn = document.getElementById('saveBtn');
+  if (!box) return;
+  const on = U.list.filter(x => x.on && !x.done), bad = U.list.filter(txBad).length;
+  box.innerHTML = `<div class="sum sm"><span class="mut">${on.length}건 선택</span><b class="num">${fmt(on.reduce((a, x) => a + x.amount, 0))}원</b></div>` +
+    (bad ? `<div class="sm" style="color:var(--neg-fg)">노란 테두리 ${bad}건의 날짜·금액·카테고리·결제수단을 확인해 주세요.</div>` : '');
+  btn.disabled = !on.length || bad > 0 || !!U.saving;
+  btn.textContent = U.saving ? '저장 중…' : `체크한 ${on.length}건 저장`;
+}
+
+async function saveList() {
+  U.saving = true; U.error = ''; updateListFoot();
+  try {
+    await getToken();
+    for (const x of U.list.filter(x => x.on && !x.done)) {
+      const r = await saveReceipt({ draft: tossDraft(x), clientId: x.id, sheets, store: txStore, yearIds: S.years, pays: S.pays });
+      if (!r.ok) throw new Error(`${x.merchant}: ${r.error === 'INVALID' ? r.detail.map(e => errText(e)).join(' ') : errText(r.error, r.detail)}`);
+      x.done = true;
+    }
+  } catch (e) {
+    U.saving = false; U.error = `저장하지 못했어요 — ${e.message}. 다시 누르면 남은 건만 이어서 저장해요.`; render(); window.scrollTo(0, 0); return;
+  }
+  const done = U.list.filter(x => x.done), d = done[0].date;
+  U.y = +d.slice(0, 4); U.m = +d.slice(5, 7); U.d = +d.slice(8, 10);
+  U.note = `토스 내역 ${done.length}건을 저장했어요.`;
+  U.list = null; U.saving = false;
+  await showCalendar(true);
 }
 
 function settingsView() {
@@ -224,6 +280,15 @@ function toConfirm() {
 
 function onAnswer(text) {
   const p = parseAnswer(text);
+  if (p.ok && Array.isArray(p.json.transactions)) {
+    const n = normalizeToss(p.json, { cats: CATS, pays: S.pays, today: today(), payMap: S.payMap });
+    if (!n.ok) { U.answer = text; U.error = '토스 거래가 읽히지 않았어요. 캡처를 다시 보내 보세요.'; render(); return; }
+    U.list = n.list.map(x => ({ ...x, id: crypto.randomUUID() }));
+    U.screen = 'list'; U.saving = false; U.error = ''; U.answer = ''; render();
+    const ys = [...new Set(U.list.map(x => +x.date.slice(0, 4)))].filter(y => S.years[y] && !U.rows[y]);
+    if (signedIn()) ys.forEach(y => loadYear(y).then(() => U.screen === 'list' && render()).catch(() => {}));
+    return;
+  }
   const n = p.ok ? normalize(p.json, { cats: CATS, pays: S.pays, today: today() }) : p;
   if (!n.ok) { U.answer = text; U.error = n.error === 'NOT_RECEIPT' ? '영수증으로 읽히지 않았어요. 사진을 다시 보내 보세요.' : 'Claude 답에서 JSON을 찾지 못했어요. 답 전체를 복사했는지 확인해 주세요.'; render(); return; }
   U.clientId = crypto.randomUUID(); U.saving = false; U.error = ''; U.answer = ''; U.photoUrl = '';
@@ -269,13 +334,14 @@ $app.addEventListener('click', async e => {
   else if (act === 'back') { if (U.draft) { U.screen = 'confirm'; U.error = ''; render(); } else showCalendar(); }
   else if (act === 'cancel') {
     if (txStore.get(U.clientId)?.status === 'pending') txStore.del(U.clientId);
-    U.draft = null; U.photoUrl = ''; U.error = ''; U.answer = ''; showCalendar();
+    U.list?.forEach(x => { if (txStore.get(x.id)?.status === 'pending') txStore.del(x.id); });
+    U.draft = null; U.list = null; U.photoUrl = ''; U.error = ''; U.answer = ''; showCalendar();
   }
   else if (act === 'shoot') {
     if (!ready()) { U.screen = 'settings'; render(); return; }
     if (S.apiKey) $photo.click(); else { U.screen = 'paste'; U.error = ''; render(); }
   } else if (act === 'copyPrompt') {
-    navigator.clipboard.writeText(chatPrompt(CATS)).then(() => { t.textContent = '복사했어요 ✓'; }, () => alert('복사하지 못했어요.'));
+    navigator.clipboard.writeText((t.dataset.p === 'toss' ? tossPrompt : chatPrompt)(CATS)).then(() => { t.textContent = '복사했어요 ✓'; }, () => alert('복사하지 못했어요.'));
   } else if (act === 'loadAnswer') onAnswer(document.getElementById('answer').value);
   else if (act === 'manual') {
     U.clientId = crypto.randomUUID(); U.saving = false; U.error = ''; U.answer = ''; U.photoUrl = '';
@@ -286,6 +352,7 @@ $app.addEventListener('click', async e => {
   } else if (act === 'addItem') { U.draft.items.push({ name: '', amt: 0, disc: 0, cat: '', unsure: true }); render(); }
   else if (act === 'delItem') { U.draft.items.splice(+t.dataset.i, 1); render(); }
   else if (act === 'save') save();
+  else if (act === 'saveList') saveList();
   else if (act === 'addYear') {
     const y = int(document.getElementById('newYear').value), id = sheetId(document.getElementById('newSheet').value);
     if (y >= 2000 && id) { S.years[y] = id; keep('ledger.settings', S); U.rows = {}; render(); }
@@ -303,6 +370,18 @@ $app.addEventListener('click', async e => {
 
 function onField(e) {
   const t = e.target, d = U.draft;
+  if (t.dataset.tx && U.list) {
+    const x = U.list[+t.dataset.tx], k = t.dataset.k;
+    x[k] = k === 'on' ? t.checked : k === 'amount' ? int(t.value) : t.value;
+    if (k === 'pay' && e.type === 'change') {
+      // 같은 결제수단 표기는 기억하고, 이 목록의 빈 칸에도 채운다.
+      if (x.payText && x.pay) { S.payMap[payKey(x.payText)] = x.pay; keep('ledger.settings', S); }
+      U.list.forEach(y => { if (!y.pay && payKey(y.payText) === payKey(x.payText)) y.pay = x.pay; });
+      render(); return;
+    }
+    t.closest('.item').classList.toggle('unsure', txBad(x));
+    updateListFoot(); return;
+  }
   if (!d) return;
   if (t.dataset.f) {
     const k = t.dataset.f;
