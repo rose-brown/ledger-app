@@ -1,7 +1,7 @@
 // 화면: 캘린더(첫 화면) · 영수증 확인 · 설정.
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { CATS, DEFAULT_PAYS, balance, check } from './src/ledger.js';
-import { normalize } from './src/receipt.js';
+import { normalize, chatPrompt, parseAnswer } from './src/receipt.js';
 import { rangeEnd, monthSpend, dayEntries, hasSame } from './src/sheet.js';
 import { saveReceipt, TX, IS_CELL } from './src/save.js';
 import { recognize } from './src/claude.js';
@@ -41,7 +41,7 @@ const errText = (code, detail) => typeof ERR[code] === 'function' ? ERR[code](de
 const U = { screen: 'cal', y: 0, m: 0, d: 0, rows: {}, loading: false, error: '', draft: null, photoUrl: '', busy: '', note: '' };
 { const t = today(); U.y = +t.slice(0, 4); U.m = +t.slice(5, 7); U.d = +t.slice(8, 10); }
 
-const ready = () => GOOGLE_CLIENT_ID && S.apiKey && Object.keys(S.years).length;
+const ready = () => GOOGLE_CLIENT_ID && Object.keys(S.years).length;
 
 // ---------- 시트 읽기 ----------
 async function loadYear(y, force = false) {
@@ -64,7 +64,7 @@ async function showCalendar(force = false) {
 
 // ---------- 화면 그리기 ----------
 function render() {
-  $app.innerHTML = U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : calView();
+  $app.innerHTML = U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : U.screen === 'paste' ? pasteView() : calView();
   if (U.screen === 'confirm') updateStatus();
 }
 
@@ -72,7 +72,7 @@ function calView() {
   const head = `<div class="bar"><button class="ib" data-act="prev" aria-label="이전 달">‹</button>
     <span class="t">${U.y}년 ${U.m}월</span><button class="ib" data-act="next" aria-label="다음 달">›</button>
     <span class="r"><button class="ib" data-act="reload" aria-label="새로고침">↻</button><button class="ib" data-act="settings" aria-label="설정">⚙</button></span></div>`;
-  const fab = `<button class="fab" data-act="shoot">📷 영수증 찍기</button>`;
+  const fab = `<button class="fab" data-act="shoot">${S.apiKey ? '📷 영수증 찍기' : '🧾 영수증 넣기'}</button>`;
   if (!ready()) return head + `<div class="pad"><div class="msg warn">처음 쓰려면 설정이 필요해요.</div><button class="btn p" data-act="settings">설정 열기</button></div>`;
   if (!S.years[U.y]) return head + `<div class="pad"><div class="msg warn">${U.y}년 시트가 연결돼 있지 않아요.</div><button class="btn" data-act="settings">설정에서 추가</button></div>` + fab;
   if (!signedIn()) return head + `<div class="pad"><p class="mut">시트를 보려면 Google 로그인이 필요해요.</p><button class="btn p" data-act="login">Google 로그인</button></div>` + fab;
@@ -140,6 +140,22 @@ function updateStatus() {
   btn.textContent = U.saving ? '저장 중…' : '시트에 저장';
 }
 
+// API 키가 없을 때: Claude 앱(구독)에서 읽힌 답을 붙여넣는다.
+function pasteView() {
+  return `<div class="bar"><button class="ib" data-act="cancel" aria-label="닫기">✕</button><span class="t">영수증 넣기</span></div><div class="pad">
+    ${U.error ? `<div class="msg warn">${esc(U.error)}</div>` : ''}
+    <ol class="sm" style="padding-left:20px;line-height:1.7">
+      <li><b>질문 복사</b>를 누르세요.</li>
+      <li>Claude 앱에서 영수증 사진을 첨부하고 질문을 붙여넣어 보내세요.</li>
+      <li>Claude 답을 통째로 복사해 아래에 붙여넣으세요.</li>
+    </ol>
+    <button class="btn" data-act="copyPrompt" style="width:100%">질문 복사</button>
+    <textarea id="answer" placeholder="Claude 답 붙여넣기" style="margin-top:12px">${esc(U.answer)}</textarea>
+    <button class="btn p" data-act="loadAnswer" style="width:100%;margin-top:8px">불러오기</button>
+    <button class="btn s" data-act="manual" style="width:100%;margin-top:8px">직접 입력</button>
+  </div>`;
+}
+
 function settingsView() {
   const years = Object.keys(S.years).sort().map(y => `<div class="li"><span class="g"><span>${y}년</span><span class="sm mut">${esc(S.years[y])}</span></span>
     <button class="btn s" data-act="delYear" data-y="${y}">삭제</button></div>`).join('') || '<p class="sm mut">연결된 시트가 없어요.</p>';
@@ -148,8 +164,8 @@ function settingsView() {
     <h2>Google 계정</h2>
     <p class="sm mut">${signedIn() ? '로그인돼 있어요.' : '로그인 전이에요.'}</p>
     <button class="btn" data-act="login" ${GOOGLE_CLIENT_ID ? '' : 'disabled'}>Google 로그인</button>
-    <h2>Claude API 키</h2>
-    <p class="sm mut">이 휴대폰 브라우저에만 저장돼요. 이 앱 전용 키를 만들고 월 사용 한도를 걸어 두세요.</p>
+    <h2>Claude API 키 (선택)</h2>
+    <p class="sm mut">비워 두면 Claude 앱에서 읽힌 답을 붙여넣어요. 넣으면 사진만 찍어도 바로 읽어요(사용량만큼 과금). 이 휴대폰 브라우저에만 저장돼요.</p>
     <input type="password" id="apiKey" value="${esc(S.apiKey)}" placeholder="sk-ant-..." autocomplete="off">
     <h2>연도별 시트</h2>
     <p class="sm mut">개발·확인 중에는 원본이 아닌 <b>사본</b>을 연결하세요.</p>
@@ -196,9 +212,22 @@ async function onPhoto(file) {
     U.draft = emptyDraft(); U.error = e.message;
   }
   U.busy = '';
+  toConfirm();
+}
+
+function toConfirm() {
+  U.screen = 'confirm';
   const y = +U.draft.date.slice(0, 4);
   render();
   if (S.years[y] && signedIn() && !U.rows[y]) loadYear(y).then(updateStatus).catch(() => {});
+}
+
+function onAnswer(text) {
+  const p = parseAnswer(text);
+  const n = p.ok ? normalize(p.json, { cats: CATS, pays: S.pays, today: today() }) : p;
+  if (!n.ok) { U.answer = text; U.error = n.error === 'NOT_RECEIPT' ? '영수증으로 읽히지 않았어요. 사진을 다시 보내 보세요.' : 'Claude 답에서 JSON을 찾지 못했어요. 답 전체를 복사했는지 확인해 주세요.'; render(); return; }
+  U.clientId = crypto.randomUUID(); U.saving = false; U.error = ''; U.answer = ''; U.photoUrl = '';
+  U.draft = n.draft; toConfirm();
 }
 
 async function save() {
@@ -240,11 +269,17 @@ $app.addEventListener('click', async e => {
   else if (act === 'back') { if (U.draft) { U.screen = 'confirm'; U.error = ''; render(); } else showCalendar(); }
   else if (act === 'cancel') {
     if (txStore.get(U.clientId)?.status === 'pending') txStore.del(U.clientId);
-    U.draft = null; U.photoUrl = ''; U.error = ''; showCalendar();
+    U.draft = null; U.photoUrl = ''; U.error = ''; U.answer = ''; showCalendar();
   }
   else if (act === 'shoot') {
     if (!ready()) { U.screen = 'settings'; render(); return; }
-    $photo.click();
+    if (S.apiKey) $photo.click(); else { U.screen = 'paste'; U.error = ''; render(); }
+  } else if (act === 'copyPrompt') {
+    navigator.clipboard.writeText(chatPrompt(CATS)).then(() => { t.textContent = '복사했어요 ✓'; }, () => alert('복사하지 못했어요.'));
+  } else if (act === 'loadAnswer') onAnswer(document.getElementById('answer').value);
+  else if (act === 'manual') {
+    U.clientId = crypto.randomUUID(); U.saving = false; U.error = ''; U.answer = ''; U.photoUrl = '';
+    U.draft = emptyDraft(); toConfirm();
   } else if (act === 'login') {
     try { await getToken(true); } catch (err) { alert(err.message); }
     U.screen === 'settings' ? render() : showCalendar(true);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATS, DEFAULT_PAYS, balance, check } from '../src/ledger.js';
-import { normalize, mapPay, receiptSchema, receiptPrompt } from '../src/receipt.js';
+import { normalize, mapPay, receiptSchema, receiptPrompt, chatPrompt, parseAnswer } from '../src/receipt.js';
 import { LOTTE } from './fixtures.js';
 
 const CTX = { cats: CATS, pays: DEFAULT_PAYS, today: '2026-10-30' };
@@ -72,4 +72,20 @@ test('missing total → amount 0 so double-counted coupon cannot balance itself'
   const d = normalize({ ...LOTTE_JSON, coupon: 7000, total: 0 }, CTX).draft;
   assert.equal(d.amount, 0);
   assert.ok(check(d, DEFAULT_PAYS).includes('BAD_AMOUNT'));
+});
+
+test('parseAnswer: json in code block with text around', () => {
+  const text = '영수증을 읽었어요.\n```json\n' + JSON.stringify(LOTTE_JSON, null, 2) + '\n```\n확인해 주세요.';
+  assert.deepEqual(parseAnswer(text), { ok: true, json: LOTTE_JSON });
+});
+
+test('parseAnswer: no json → BAD_JSON', () => {
+  assert.deepEqual(parseAnswer('사진이 흐려요'), { ok: false, error: 'BAD_JSON' });
+  assert.deepEqual(parseAnswer('{oops}'), { ok: false, error: 'BAD_JSON' });
+});
+
+test('chatPrompt: rules + every schema key', () => {
+  const p = chatPrompt(CATS);
+  assert.ok(p.startsWith(receiptPrompt(CATS)));
+  for (const k of ['not_receipt', 'merchant', 'date', 'payment', 'items', 'coupon', 'total', 'discount', 'category', 'unsure']) assert.match(p, new RegExp(`"${k}"`));
 });

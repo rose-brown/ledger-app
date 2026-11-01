@@ -30,6 +30,19 @@ export function receiptPrompt(cats) {
   ].join('\n');
 }
 
+// Claude 앱(구독)에 붙여넣을 질문. 구조화 출력이 없어 형식을 예시로 적는다.
+export function chatPrompt(cats) {
+  const example = { not_receipt: false, merchant: '', date: 'YYYY-MM-DD', payment: '',
+    items: [{ name: '', amount: 0, discount: 0, category: '', unsure: false }], coupon: 0, total: 0 };
+  return receiptPrompt(cats) + '\n- 첨부한 영수증 사진을 읽고, 설명 없이 아래 형식의 JSON 하나만 답하세요.\n' + JSON.stringify(example);
+}
+
+// 붙여넣은 Claude 답에서 JSON만 꺼낸다 (코드블록·앞뒤 설명 허용).
+export function parseAnswer(text) {
+  const s = String(text || ''), a = s.indexOf('{'), b = s.lastIndexOf('}');
+  try { return { ok: true, json: JSON.parse(s.slice(a, b + 1)) }; } catch { return { ok: false, error: 'BAD_JSON' }; }
+}
+
 const toInt = v => Math.round(Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0);
 const squash = s => String(s || '').replace(/\s/g, '');
 
