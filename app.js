@@ -1,4 +1,4 @@
-// 화면: 캘린더(첫 화면) · 영수증 확인 · 설정.
+// 화면: 캘린더(첫 화면) · 손익 · 영수증 확인 · 설정. 캘린더·손익·설정은 하단 탭으로 오간다.
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { CATS, DEFAULT_PAYS, balance, check } from './src/ledger.js';
 import { normalize, chatPrompt, parseAnswer } from './src/receipt.js';
@@ -7,6 +7,8 @@ import { saveReceipt, TX, IS_CELL } from './src/save.js';
 import { tossPrompt, normalizeToss, tossDraft, payKey } from './src/toss.js';
 import { recognize } from './src/claude.js';
 import { initGoogle, getToken, signedIn, sheets } from './src/google.js';
+import { IS_RANGE, parseStatement, visible } from './src/statement.js';
+import { BUDGET_SHEET, BUDGET_RANGE, DEFAULT_BUDGET, parseBudget, budgetValues, budgetMonth } from './src/budget.js';
 
 const $app = document.getElementById('app');
 const $photo = document.getElementById('photo');
@@ -40,7 +42,7 @@ const ERR = {
 };
 const errText = (code, detail) => typeof ERR[code] === 'function' ? ERR[code](detail) : (ERR[code] || code);
 
-const U = { screen: 'cal', y: 0, m: 0, d: 0, rows: {}, loading: false, error: '', draft: null, photoUrl: '', busy: '', note: '' };
+const U = { screen: 'cal', y: 0, m: 0, d: 0, rows: {}, is: {}, budget: {}, sview: 'month', loading: false, error: '', draft: null, photoUrl: '', busy: '', note: '' };
 { const t = today(); U.y = +t.slice(0, 4); U.m = +t.slice(5, 7); U.d = +t.slice(8, 10); }
 
 const ready = () => GOOGLE_CLIENT_ID && Object.keys(S.years).length;
@@ -55,6 +57,40 @@ async function loadYear(y, force = false) {
   return U.rows[y];
 }
 
+async function loadStmt(y, force = false) {
+  if (!S.years[y]) return null;
+  if (U.is[y] && !force) return U.is[y];
+  const id = S.years[y];
+  const [values, has] = await Promise.all([sheets.getValues(id, IS_RANGE), sheets.hasSheet(id, BUDGET_SHEET)]);
+  // '예산' 시트가 없으면 추천값을 보여 주고, 예산 고치기에서 저장할 때 시트를 만든다.
+  U.budget[y] = has ? { b: parseBudget(await sheets.getValues(id, BUDGET_RANGE)), saved: true } : { b: { ...DEFAULT_BUDGET }, saved: false };
+  U.is[y] = parseStatement(values);
+  return U.is[y];
+}
+
+async function saveBudget() {
+  const y = U.y, id = S.years[y];
+  const b = Object.fromEntries(CATS.map(c => [c, int(document.querySelector(`[data-bc="${c}"]`).value)]));
+  U.saving = true; U.error = ''; render();
+  try {
+    await getToken();
+    if (!(await sheets.hasSheet(id, BUDGET_SHEET))) await sheets.addSheet(id, BUDGET_SHEET);
+    await sheets.setValues(id, `'${BUDGET_SHEET}'!A1:B${CATS.length + 1}`, budgetValues(b));
+    U.budget[y] = { b, saved: true };
+    U.saving = false; U.sview = 'month'; showStatement();
+  } catch (e) {
+    U.saving = false; U.error = `예산을 저장하지 못했어요: ${e.message}`; render();
+  }
+}
+
+async function showStatement(force = false) {
+  U.screen = 'stmt'; U.error = '';
+  if (!S.years[U.y] || !signedIn()) { render(); return; }
+  U.loading = true; render();
+  try { await loadStmt(U.y, force); } catch (e) { U.error = e.message; }
+  U.loading = false; render();
+}
+
 async function showCalendar(force = false) {
   U.screen = 'cal'; U.error = '';
   if (!S.years[U.y]) { render(); return; }
@@ -66,9 +102,84 @@ async function showCalendar(force = false) {
 
 // ---------- 화면 그리기 ----------
 function render() {
-  $app.innerHTML = U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : U.screen === 'paste' ? pasteView() : U.screen === 'list' ? listView() : calView();
+  $app.innerHTML = (U.screen === 'confirm' ? confirmView() : U.screen === 'settings' ? settingsView() : U.screen === 'paste' ? pasteView() : U.screen === 'list' ? listView() : U.screen === 'stmt' ? stmtView() : U.screen === 'budget' ? budgetEditView() : calView())
+    + (['cal', 'stmt', 'settings'].includes(U.screen) ? tabBar() : '');
   if (U.screen === 'list') updateListFoot();
   if (U.screen === 'confirm') updateStatus();
+}
+
+function tabBar() {
+  const tab = (id, icon, name) => `<button data-tab="${id}" ${U.screen === id ? 'aria-current="page"' : ''}><span aria-hidden="true">${icon}</span>${name}</button>`;
+  return `<nav class="tabs" aria-label="화면 이동">${tab('cal', '📅', '달력')}${tab('stmt', '📊', '손익')}${tab('settings', '⚙', '설정')}</nav>`;
+}
+
+const sfmt = n => (n < 0 ? '−' + fmt(-n) : fmt(n)); // 지출은 음수(시트 그대로), 앞에 −
+const tone = n => (n < 0 ? 'neg' : n > 0 ? 'pos' : 'mut');
+
+function stmtView() {
+  const head = `<div class="bar"><button class="ib" data-act="${U.sview === 'month' ? 'sprev' : 'yprev'}" aria-label="이전">‹</button>
+    <span class="t">${U.sview === 'month' ? `${U.y}년 ${U.m}월` : `${U.y}년`} 손익</span>
+    <button class="ib" data-act="${U.sview === 'month' ? 'snext' : 'ynext'}" aria-label="다음">›</button>
+    <span class="r"><button class="ib" data-act="sreload" aria-label="새로고침">↻</button></span></div>`;
+  if (!ready()) return head + `<div class="pad"><div class="msg warn">처음 쓰려면 설정이 필요해요.</div><button class="btn p" data-act="settings">설정 열기</button></div>`;
+  if (!S.years[U.y]) return head + `<div class="pad"><div class="msg warn">${U.y}년 시트가 연결돼 있지 않아요.</div><button class="btn" data-act="settings">설정에서 추가</button></div>`;
+  if (!signedIn()) return head + `<div class="pad"><p class="mut">시트를 보려면 Google 로그인이 필요해요.</p><button class="btn p" data-act="login">Google 로그인</button></div>`;
+  if (U.loading) return head + `<div class="spin">시트 읽는 중…</div>`;
+  if (U.error) return head + `<div class="pad"><div class="msg err">${esc(U.error)}</div><button class="btn" data-act="sreload">다시 시도</button></div>`;
+  const st = U.is[U.y];
+  if (!st) return head + `<div class="spin">불러오는 중…</div>`;
+  const seg = `<div class="seg" role="group" aria-label="보기 방식"><button data-sv="month" aria-pressed="${U.sview === 'month'}">월별 보기</button><button data-sv="year" aria-pressed="${U.sview === 'year'}">연간 표</button></div>`;
+  return head + `<div class="pad">${seg}${U.sview === 'month' ? stmtMonth(st) : stmtYear(st)}
+    <p class="sm mut" style="margin:16px 0">'3. Income Statement' 시트를 읽기만 해요. 지출은 −로 표시돼요.</p></div>`;
+}
+
+// 월별 보기: 예산 대비 쓴 돈. 수익·Surplus는 맨 아래에 작게.
+const pct = (a, b) => (b > 0 ? Math.min(100, Math.max(0, (a / b) * 100)) : a > 0 ? 100 : 0);
+
+function stmtMonth(st) {
+  const m = U.m, t = today(), cur = +t.slice(0, 4) === U.y && +t.slice(5, 7) === m;
+  const days = new Date(U.y, m, 0).getDate(), day = +t.slice(8, 10);
+  const { b, saved } = U.budget[U.y] || { b: DEFAULT_BUDGET, saved: false };
+  const r = budgetMonth(st, b, m, cur ? { day, days } : null);
+  const over = r.left < 0;
+  const gauge = x => {
+    const o = x.left < 0;
+    return `<div class="bg"><div class="rh"><span>${esc(x.name)}</span><span class="num ${o ? 'neg' : 'mut'}">${o ? `${fmt(-x.left)} 초과` : `${fmt(x.left)} 남음`}</span></div>
+      <div class="trk" aria-hidden="true"><span class="${o ? 'o' : ''}" style="width:${pct(x.spent, x.budget)}%"></span></div>
+      <div class="sm mut num">${x.spent < 0 ? '−' : ''}${fmt(Math.abs(x.spent))} / ${fmt(x.budget)}</div></div>`;
+  };
+  const group = (title, list) => list.length ? `<h2>${title}</h2>${list.map(gauge).join('')}` : '';
+  const inc = st.income.sum.months[m - 1], sp = st.surplus.months[m - 1];
+  return `<div class="sm mut">${m}월 예산 ${fmt(r.budget)}원 중</div>
+    <div class="big num ${over ? 'neg' : ''}">${over ? `${fmt(-r.left)}원 더 썼어요` : `${fmt(r.left)}원 남았어요`}</div>
+    <div class="trk big-trk" aria-hidden="true"><span class="${over ? 'o' : ''}" style="width:${pct(r.spent, r.budget)}%"></span>${cur ? `<i style="left:${(day / days) * 100}%"></i>` : ''}</div>
+    <div class="sm mut">${fmt(r.spent)}원 썼어요${cur ? ' · 검은 선은 오늘까지 쓸 만큼' : ''}</div>
+    ${cur ? `<div class="sm" style="margin-top:4px">오늘부터 하루 <b class="num">${fmt(r.daily)}원</b>까지 쓸 수 있어요 (변동비, ${days - day + 1}일 남음)</div>` : ''}
+    ${saved ? '' : `<div class="msg warn">아직 시트에 예산이 없어서 지난 기록 평균(추천값)으로 보여 줘요. 예산 고치기에서 저장하면 '예산' 시트가 생겨요.</div>`}
+    ${group('변동비', r.variable)}${group('고정비', r.fixed)}
+    <button class="btn" data-act="editBudget" style="width:100%;margin-top:16px">예산 고치기</button>
+    <div class="sec"><div class="li"><span>수익</span><span class="num ${tone(inc)}">${sfmt(inc)}</span></div>
+      <div class="li"><span>Surplus / Loss</span><span class="num ${tone(sp)}">${sfmt(sp)}</span></div></div>`;
+}
+
+function budgetEditView() {
+  const { b } = U.budget[U.y] || { b: DEFAULT_BUDGET };
+  const rows = CATS.map(c => `<label class="f"><span>${esc(c)} <span class="mut">· 추천 ${fmt(DEFAULT_BUDGET[c])}</span></span>
+    <input data-bc="${esc(c)}" inputmode="numeric" value="${b[c] || 0}"></label>`).join('');
+  return `<div class="bar"><button class="ib" data-act="budgetBack" aria-label="뒤로">‹</button><span class="t">${U.y}년 예산</span></div><div class="pad">
+    ${U.error ? `<div class="msg err">${esc(U.error)}</div>` : ''}
+    <p class="sm mut">카테고리마다 한 달 예산이에요. 매달 같은 금액을 써요. 추천은 2022~2026 기록에서 가장 많은·적은 달 2개씩 빼고 낸 평균이에요. 0원이면 쓰지 않은 달엔 화면에서 숨겨요.</p>
+    ${rows}
+    <div style="margin:16px 0"><button class="btn p" data-act="saveBudget" style="width:100%" ${U.saving ? 'disabled' : ''}>${U.saving ? '저장 중…' : '시트에 저장'}</button></div>
+  </div>`;
+}
+
+function stmtYear(st) {
+  const cols = Array.from({ length: 12 }, (_, i) => `<th scope="col" class="${i + 1 === U.m ? 'cur' : ''}">${i + 1}월</th>`).join('');
+  const tr = (ln, cls = '') => `<tr class="${cls}"><th scope="row">${esc(ln.name)}</th>${ln.months.map((v, i) => `<td class="num ${tone(v)} ${i + 1 === U.m ? 'cur' : ''}">${v ? sfmt(v) : ''}</td>`).join('')}<td class="num ${tone(ln.total)}">${ln.total ? sfmt(ln.total) : ''}</td></tr>`;
+  const part = sec => tr(sec.sum, 'sum') + visible(sec.rows, 'all').map(r => tr(r)).join('');
+  return `<div class="tw"><table class="yt"><thead><tr><th scope="col"></th>${cols}<th scope="col">합계</th></tr></thead>
+    <tbody>${part(st.income)}${part(st.expense)}${tr(st.surplus, 'sum')}</tbody></table></div>`;
 }
 
 function calView() {
@@ -208,7 +319,7 @@ async function saveList() {
   const done = U.list.filter(x => x.done), d = done[0].date;
   U.y = +d.slice(0, 4); U.m = +d.slice(5, 7); U.d = +d.slice(8, 10);
   U.note = `토스 내역 ${done.length}건을 저장했어요.`;
-  U.list = null; U.saving = false;
+  U.list = null; U.saving = false; U.is = {};
   await showCalendar(true);
 }
 
@@ -309,7 +420,7 @@ async function save() {
     const d = draft.date;
     U.y = +d.slice(0, 4); U.m = +d.slice(5, 7); U.d = +d.slice(8, 10);
     U.note = r.already ? '이미 저장된 영수증이에요.' : `${r.year}년 시트 ${r.start}~${r.start + r.count - 1}행에 저장했어요.`;
-    U.draft = null; U.photoUrl = ''; U.saving = false;
+    U.draft = null; U.photoUrl = ''; U.saving = false; U.is = {};
     await showCalendar(true);
   } catch (e) {
     U.saving = false; U.error = `저장하지 못했어요: ${e.message}. 다시 누르면 이어서 저장해요(중복 없이).`; render();
@@ -320,12 +431,27 @@ async function save() {
 $photo.addEventListener('change', () => { const f = $photo.files[0]; $photo.value = ''; if (f) onPhoto(f); });
 
 $app.addEventListener('click', async e => {
-  const t = e.target.closest('[data-act],[data-day]');
+  const t = e.target.closest('[data-act],[data-day],[data-tab],[data-sv]');
   if (!t) return;
+  if (t.dataset.sv) { U.sview = t.dataset.sv; render(); return; }
+  if (t.dataset.tab) {
+    const tab = t.dataset.tab;
+    if (tab === U.screen) return;
+    if (tab === 'cal') showCalendar(); else if (tab === 'stmt') showStatement(); else { U.screen = 'settings'; render(); }
+    return;
+  }
   if (t.dataset.day) { U.d = +t.dataset.day; U.note = ''; render(); return; }
   const act = t.dataset.act;
   if (U.saving && act !== 'save') return;
-  if (act === 'prev' || act === 'next') {
+  if (act === 'sprev' || act === 'snext' || act === 'yprev' || act === 'ynext') {
+    if (act === 'yprev' || act === 'ynext') U.y += act === 'yprev' ? -1 : 1;
+    else { U.m += act === 'sprev' ? -1 : 1; if (U.m < 1) { U.m = 12; U.y--; } if (U.m > 12) { U.m = 1; U.y++; } }
+    U.d = 1; U.note = ''; showStatement();
+  } else if (act === 'sreload') showStatement(true);
+  else if (act === 'editBudget') { U.screen = 'budget'; U.error = ''; render(); window.scrollTo(0, 0); }
+  else if (act === 'budgetBack') showStatement();
+  else if (act === 'saveBudget') saveBudget();
+  else if (act === 'prev' || act === 'next') {
     U.m += act === 'prev' ? -1 : 1;
     if (U.m < 1) { U.m = 12; U.y--; } if (U.m > 12) { U.m = 1; U.y++; }
     U.d = 1; U.note = ''; showCalendar();
@@ -348,19 +474,19 @@ $app.addEventListener('click', async e => {
     U.draft = emptyDraft(); toConfirm();
   } else if (act === 'login') {
     try { await getToken(true); } catch (err) { alert(err.message); }
-    U.screen === 'settings' ? render() : showCalendar(true);
+    U.screen === 'settings' ? render() : U.screen === 'stmt' ? showStatement(true) : showCalendar(true);
   } else if (act === 'addItem') { U.draft.items.push({ name: '', amt: 0, disc: 0, cat: '', unsure: true }); render(); }
   else if (act === 'delItem') { U.draft.items.splice(+t.dataset.i, 1); render(); }
   else if (act === 'save') save();
   else if (act === 'saveList') saveList();
   else if (act === 'addYear') {
     const y = int(document.getElementById('newYear').value), id = sheetId(document.getElementById('newSheet').value);
-    if (y >= 2000 && id) { S.years[y] = id; keep('ledger.settings', S); U.rows = {}; render(); }
+    if (y >= 2000 && id) { S.years[y] = id; keep('ledger.settings', S); U.rows = {}; U.is = {}; render(); }
   } else if (act === 'delYear') { delete S.years[t.dataset.y]; keep('ledger.settings', S); render(); }
   else if (act === 'saveSettings') {
     // + 연도 추가를 안 누르고 저장해도 입력한 시트를 연결한다.
     const y = int(document.getElementById('newYear').value), id = sheetId(document.getElementById('newSheet').value);
-    if (y >= 2000 && id) { S.years[y] = id; U.rows = {}; }
+    if (y >= 2000 && id) { S.years[y] = id; U.rows = {}; U.is = {}; }
     S.apiKey = document.getElementById('apiKey').value.trim();
     S.pays = document.getElementById('pays').value.split('\n').map(s => s.trim()).filter(Boolean);
     keep('ledger.settings', S);

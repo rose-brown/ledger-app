@@ -86,3 +86,34 @@ textarea{font:inherit;min-height:120px}
 .spin{display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--fg-subtle)}
 h2{font-size:15px;margin:20px 0 4px;color:var(--fg-strong)}
 .app:has(.foot){padding-bottom:220px}
+
+/* 하단 탭 · 손익 */
+.tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(430px,100%);display:flex;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
+.tabs button{flex:1;min-height:56px;border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;color:var(--fg-subtle)}
+.tabs button span{font-size:18px;line-height:1}
+.tabs button[aria-current="page"]{color:var(--primary);font-weight:600}
+.app:has(.tabs){padding-bottom:160px}
+.app:has(.tabs) .fab{bottom:calc(68px + env(safe-area-inset-bottom))}
+.seg{display:flex;gap:4px;padding:4px;margin:4px 0 12px;background:var(--fill);border-radius:12px}
+.seg button{flex:1;height:36px;border:0;border-radius:9px;background:none;font-size:14px;font-weight:600;color:var(--fg-muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg-strong);box-shadow:var(--shadow)}
+.sec{margin-top:16px;border-top:1px solid var(--line)}
+.sec>.li:first-child{border-bottom:1px solid var(--line)}
+.pos{color:var(--pos-fg)}.neg{color:var(--neg-fg)}
+.tw{overflow-x:auto;margin:0 -16px;padding:0 16px;-webkit-overflow-scrolling:touch}
+.yt{border-collapse:separate;border-spacing:0;font-size:12px;white-space:nowrap}
+.yt th,.yt td{padding:8px 8px;border-bottom:1px solid var(--line-soft);text-align:right;background:var(--surface)}
+.yt thead th{position:sticky;top:0;font-weight:600;color:var(--fg-muted);border-bottom:1px solid var(--line)}
+.yt tbody th{position:sticky;left:0;text-align:left;font-weight:500;background:var(--surface);z-index:1;border-right:1px solid var(--line-soft)}
+.yt thead th:first-child{left:0;z-index:2}
+.yt tr.sum th,.yt tr.sum td{font-weight:700;background:var(--surface-alt)}
+.yt .cur{background:var(--fill)}
+
+/* 예산 막대 */
+.trk{position:relative;height:8px;background:var(--fill-strong);border-radius:4px;margin:6px 0 2px}
+.trk>span{display:block;height:100%;border-radius:4px;background:var(--primary)}
+.trk>span.o{background:var(--neg)}
+.trk>i{position:absolute;top:-3px;width:2px;height:14px;margin-left:-1px;background:var(--fg-strong)}
+.big-trk{height:10px;margin-top:0}
+.bg{padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.bg .rh{display:flex;justify-content:space-between;gap:12px}

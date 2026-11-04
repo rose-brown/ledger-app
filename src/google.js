@@ -80,4 +80,14 @@ export const sheets = {
       body: JSON.stringify({ range: a1, majorDimension: 'ROWS', values }),
     });
   },
+  async hasSheet(id, title) {
+    const b = await call(`${API}/${encodeURIComponent(id)}?fields=sheets.properties.title`);
+    return (b.sheets || []).some(s => s.properties.title === title);
+  },
+  async addSheet(id, title) {
+    await call(`${API}/${encodeURIComponent(id)}:batchUpdate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }),
+    });
+  },
 };
